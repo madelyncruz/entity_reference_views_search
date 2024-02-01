@@ -1,0 +1,7 @@
+entity_reference_views_search.settings:
+  path: '/admin/config/entity-reference-views-search'
+  defaults:
+    _form: '\Drupal\entity_reference_views_search\Form\EntityFormViewsSearchSettingsForm'
+    _title: 'Entity Reference Views Search Settings'
+  requirements:
+    _permission: 'administer site configuration'

@@ -1,0 +1,45 @@
+<?php
+
+/**
+ * @file
+ * Provides views search widget.
+ */
+
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\field\FieldConfigInterface;
+
+/**
+ * Implements hook_form_alter().
+ */
+function entity_reference_views_search_form_field_config_edit_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+  /** @var \Drupal\field\FieldConfigInterface $field_config */
+  $field_config = $form_state->getFormObject()->getEntity();
+
+  // Build container element.
+  $form['entity_reference_views_search'] = [
+    '#type' => 'container',
+    '#tree' => TRUE,
+    '#weight' => $form['settings']['#weight'] - 1,
+  ];
+
+  // Build status element.
+  $form['entity_reference_views_search']['status'] = [
+    '#type' => 'checkbox',
+    '#title' => t('Use entity reference views search'),
+    '#default_value' => $field_config->getThirdPartySetting('entity_reference_views_search', 'status') ?? FALSE,
+  ];
+
+  // Add entity builder to store the value in third-party settings.
+  $form['#entity_builders'][] = 'entity_reference_views_search_form_builder';
+}
+
+/**
+ * Entity builder to third-party settings for entity reference views search.
+ */
+function entity_reference_views_search_form_builder($entity_type, FieldConfigInterface $config, &$form, FormStateInterface $form_state) {
+  $config->setThirdPartySetting(
+    'entity_reference_views_search',
+    'status',
+    $form_state->getValue(['entity_reference_views_search', 'status']),
+  );
+}

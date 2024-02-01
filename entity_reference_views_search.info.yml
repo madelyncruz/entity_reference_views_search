@@ -1,0 +1,8 @@
+name: Entity Reference Views Search
+description: Provides views search widget.
+type: module
+package: Fields
+core_version_requirement: ^9 || ^10
+dependencies:
+  - drupal:field
+  - drupal:views
