@@ -72,46 +72,11 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
 
   /**
    * {@inheritdoc}
-   *
-   * Explicitly handle the multiple values.
-   */
-  protected function handlesMultipleValues() {
-    return FALSE;
-  }
-
-  /**
-   * {@inheritdoc}
    */
   public static function defaultSettings() {
     return [
       'searchable_fields' => [],
     ] + parent::defaultSettings();
-  }
-
-  /**
-   * {@inheritdoc}
-   *
-   * Check if the field is applicable to use the widget.
-   */
-  public static function isApplicable(FieldDefinitionInterface $field_definition) {
-    // Get the handler settings.
-    $handler_settings = $field_definition->getSetting('handler_settings');
-
-    // Check if field definition is an instance of
-    // \Drupal\field\FieldConfigInterface
-    // and has target bundles.
-    if ($field_definition instanceof FieldConfigInterface && isset($handler_settings['target_bundles'])) {
-      // Multiple target bundles is not allowed to use the widget
-      // and if disabled from the form field config settings.
-      $is_applicable = count($handler_settings['target_bundles']) === 1 && $field_definition->getThirdPartySetting('entity_reference_views_search', 'status');
-
-      // Return TRUE if applicable.
-      // Otherwise, return FALSE.
-      return $is_applicable;
-    }
-
-    // No option.
-    return parent::isApplicable($field_definition);
   }
 
   /**
@@ -227,6 +192,41 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
    */
   public function formElement(FieldItemListInterface $items, $delta, array $element, array &$form, FormStateInterface $form_state) {
     return $element;
+  }
+
+  /**
+   * {@inheritdoc}
+   *
+   * Explicitly handle the multiple values.
+   */
+  protected function handlesMultipleValues() {
+    return FALSE;
+  }
+
+  /**
+   * {@inheritdoc}
+   *
+   * Check if the field is applicable to use the widget.
+   */
+  public static function isApplicable(FieldDefinitionInterface $field_definition) {
+    // Get the handler settings.
+    $handler_settings = $field_definition->getSetting('handler_settings');
+
+    // Check if field definition is an instance of
+    // \Drupal\field\FieldConfigInterface
+    // and has target bundles.
+    if ($field_definition instanceof FieldConfigInterface && isset($handler_settings['target_bundles'])) {
+      // Multiple target bundles is not allowed to use the widget
+      // and if disabled from the form field config settings.
+      $is_applicable = count($handler_settings['target_bundles']) === 1 && $field_definition->getThirdPartySetting('entity_reference_views_search', 'status');
+
+      // Return TRUE if applicable.
+      // Otherwise, return FALSE.
+      return $is_applicable;
+    }
+
+    // No option.
+    return parent::isApplicable($field_definition);
   }
 
 }

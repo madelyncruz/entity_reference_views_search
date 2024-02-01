@@ -25,7 +25,7 @@ function entity_reference_views_search_form_field_config_edit_form_alter(&$form,
   // Build status element.
   $form['entity_reference_views_search']['status'] = [
     '#type' => 'checkbox',
-    '#title' => t('Use entity reference views search'),
+    '#title' => t('Use entity reference views search widget'),
     '#default_value' => $field_config->getThirdPartySetting('entity_reference_views_search', 'status') ?? FALSE,
   ];
 
