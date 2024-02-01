@@ -1,1 +1,1 @@
-allowed_field_types: 'string, entity_reference'
+allowed_field_types: 'string, email, entity_reference'

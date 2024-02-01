@@ -2,7 +2,10 @@
 
 namespace Drupal\entity_reference_views_search\Plugin\Field\FieldWidget;
 
+use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Tags;
+use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\ReplaceCommand;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Field\FieldDefinitionInterface;
@@ -12,6 +15,8 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\entity_reference_views_search\Form\EntityFormViewsSearchSettingsForm;
 use Drupal\field\FieldConfigInterface;
+use Drupal\views\ViewExecutable;
+use Drupal\views\Views;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -28,6 +33,8 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  * )
  */
 class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryPluginInterface {
+
+  const NONE_LABEL = '- None -';
 
   /**
    * The config factory object.
@@ -76,6 +83,7 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
   public static function defaultSettings() {
     return [
       'searchable_fields' => [],
+      'searchable_view' => [],
     ] + parent::defaultSettings();
   }
 
@@ -95,11 +103,21 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
     $allowed_field_types = $this->configFactory->get(self::SETTINGS)->get(EntityFormViewsSearchSettingsForm::SETTING_FIELD_TYPES);
     $allowed_field_types = Tags::explode($allowed_field_types);
 
+    $element['searchable_view'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Views result renderer'),
+      '#options' => $this->getViewsOptions(),
+      '#default_value' => $this->getSetting('searchable_view') ?? NULL,
+      '#required' => TRUE,
+    ];
+
     // Build table header.
     $header = [
-      'status' => $this->t('Allow search'),
-      'field' => $this->t('Field'),
+      'status' => NULL,
+      'label' => $this->t('Label'),
+      'name' => $this->t('Name'),
       'type' => $this->t('Type'),
+      'arg' => $this->t('Filter identifier'),
       'placeholder' => $this->t('Placeholder'),
     ];
 
@@ -127,27 +145,57 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
       // Get the information.
       $name = $entity_field_definition->getName();
       $label = $entity_field_definition->getLabel();
+      $input_status_target = 'input[name="fields[' . $field_definition->getName() . '][settings_edit_form][settings][searchable_fields][' . $name . '][status]"]';
 
-      // Build table status element.
+      // Build table status data.
       $element['searchable_fields'][$name]['status'] = [
         '#type' => 'checkbox',
-        '#option' => $name,
+        '#title' => $this->t('Status'),
         '#title_display' => 'invisible',
+        '#option' => $name,
         '#default_value' => $searchable_fields[$name]['status'] ?? NULL,
       ];
 
-      // Use field label to set the table field data.
-      $element['searchable_fields'][$name]['field'] = [
-        '#markup' => $label,
+      // Build table label data.
+      $element['searchable_fields'][$name]['label'] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Label'),
+        '#title_display' => 'invisible',
+        '#default_value' => $searchable_fields[$name]['label'] ?? $label,
+        '#required' => TRUE,
       ];
 
-      // Use field type to set the table type data.
+      // Build table name data.
+      $element['searchable_fields'][$name]['name'] = [
+        '#type' => 'textfield',
+        '#value' => $name,
+        '#disabled' => TRUE,
+      ];
+
+      // Build table type data.
       $element['searchable_fields'][$name]['type'] = [
-        '#markup' => $field_type,
+        '#type' => 'textfield',
+        '#value' => $field_type == 'entity_reference' ? 'autocomplete' : 'textfield',
+        '#disabled' => TRUE,
       ];
 
-      // Build table placeholder element.
-      $input_status_target = 'input[name="fields[' . $field_definition->getName() . '][settings_edit_form][settings][searchable_fields][' . $name . '][status]"]';
+      // Build table argument data.
+      $element['searchable_fields'][$name]['arg'] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Argument'),
+        '#title_display' => 'invisible',
+        '#default_value' => $searchable_fields[$name]['arg'] ?? NULL,
+        '#states' => [
+          'disabled' => [
+            $input_status_target => ['checked' => FALSE],
+          ],
+          'required' => [
+            $input_status_target => ['checked' => TRUE],
+          ],
+        ],
+      ];
+
+      // Build table placeholder data.
       $element['searchable_fields'][$name]['placeholder'] = [
         '#type' => 'textfield',
         '#title_display' => 'invisible',
@@ -170,19 +218,16 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
     $summary = [];
 
     // Get the searchable fields values.
-    $searchable_fields = $this->getSetting('searchable_fields');
+    $searchable_fields = $this->getSetting('searchable_fields') ?? [];
+    $searchable_view = $this->getSetting('searchable_view') ?? NULL;
 
     // Get the number of fields in use.
-    $count = 0;
-    foreach ($searchable_fields as $item) {
-      if ($item['status'] == 1) {
-        $count++;
-      }
-    }
+    $count = count($this->getEnabledSearchableFields());
 
     // Set summary.
     $summary[] = $this->t('No. of fields in use: @count', ['@count' => $count]);
     $summary[] = $this->t('No. of applicable fields: @count', ['@count' => count($searchable_fields)]);
+    $summary[] = $this->t('Views result renderer: @view', ['@view' => $searchable_view ? $this->getViewsOptions($searchable_view) : $this->t(self::NONE_LABEL)]);
 
     return $summary;
   }
@@ -191,6 +236,46 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
    * {@inheritdoc}
    */
   public function formElement(FieldItemListInterface $items, $delta, array $element, array &$form, FormStateInterface $form_state) {
+    // Get the searchable fields values.
+    $enabled_fields = $this->getEnabledSearchableFields();
+    $ajax_wrapper_id = $this->generateAjaxWrapper($items->getFieldDefinition()->id() . '_form');
+
+    // Build container element.
+    $element['entity_reference_views_search'] = [
+      '#type' => 'container',
+      '#tree' => TRUE,
+      '#attributes' => ['data-ajax-id' => $ajax_wrapper_id],
+    ];
+
+    // Build element for each enabled fields.
+    foreach ($enabled_fields as $field_name => $field) {
+      $element['entity_reference_views_search'][$field_name] = [
+        '#type' => $field['type'],
+        '#title' => $field['label'],
+      ];
+      if ($field['placeholder']) {
+        $element['entity_reference_views_search'][$field_name]['#placeholder'] = $field['placeholder'];
+      }
+    }
+
+    $element['results'] = [
+      '#type' => 'container',
+      '#prefix' => '<div id="' . $ajax_wrapper_id . '">',
+      '#suffix' => '</div>',
+    ];
+
+    $element['actions'] = [
+      '#type' => 'actions',
+    ];
+    $element['actions']['button'] = [
+      '#type' => 'button',
+      '#value' => $this->t('Search for existing records'),
+      '#ajax' => [
+        'wrapper' => $ajax_wrapper_id,
+        'callback' => [$this, 'entityReferenceViewsSearchAjax'],
+      ],
+    ];
+
     return $element;
   }
 
@@ -200,7 +285,7 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
    * Explicitly handle the multiple values.
    */
   protected function handlesMultipleValues() {
-    return FALSE;
+    return TRUE;
   }
 
   /**
@@ -227,6 +312,146 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
 
     // No option.
     return parent::isApplicable($field_definition);
+  }
+
+  /**
+   * {@inheritdoc}
+   *
+   * Entity reference views search AJAX callback function.
+   */
+  public function entityReferenceViewsSearchAjax(array &$form, FormStateInterface $form_state) {
+    $field_definition = $this->fieldDefinition;
+    $field_name = $field_definition->getName();
+    $ajax_wrapper_id = $form[$field_name]['widget']['entity_reference_views_search']['#attributes']['data-ajax-id'];
+    $enabled_fields = $this->getEnabledSearchableFields();
+    $exposed_filters = [];
+
+    // Create an AJAX response.
+    $response = new AjaxResponse();
+
+    // Get all the values.
+    $values = $form_state->getValue([
+      $field_name,
+      'entity_reference_views_search',
+    ]);
+
+    // Loop through enabled fields to map the values for exposed filter format.
+    foreach ($enabled_fields as $key => $enabled_field) {
+      $arg = $enabled_field['arg'];
+      $exposed_filters[$arg] = $values[$key] ?? NULL;
+    }
+
+    /** @var \Drupal\views\ViewExecutable $view */
+    $view = $this->viewsRenderer(FALSE);
+
+    // Set exposed filter values.
+    $view->setExposedInput($exposed_filters);
+
+    // Run attachments.
+    $view->preExecute();
+
+    // Execute views query.
+    $view->execute();
+
+    // Insert rendered views.
+    $response->addCommand(new ReplaceCommand('#' . $ajax_wrapper_id . ' > div', $view->render()));
+
+    // Remove rendered views exposed form.
+    $response->addCommand(new ReplaceCommand('#' . $ajax_wrapper_id . ' .views-exposed-form', ''));
+
+    return $response;
+  }
+
+  /**
+   * Generates AJAX wrapper by field ID.
+   *
+   * @param string $field_id
+   *   The field ID to be appended to the wrapper.
+   *
+   * @return string
+   *   Returns the generated AJAX wrapper ID.
+   */
+  protected function generateAjaxWrapper(string $field_id) : string {
+    $ajax_wrapper_id = 'js-entity_reference_views_search_';
+    $ajax_wrapper_id .= str_replace('.', '_', $field_id);
+    return Html::getId($ajax_wrapper_id);
+  }
+
+  /**
+   * Get the enabled searchable fields.
+   *
+   * @return array
+   *   An array of enabled searchable fields.
+   */
+  protected function getEnabledSearchableFields() {
+    $searchable_fields = $this->getSetting('searchable_fields');
+    $enabled_fields = [];
+    foreach ($searchable_fields as $field_name => $field) {
+      if ($field['status'] == 1) {
+        $enabled_fields[$field_name] = $field;
+      }
+    }
+    return $enabled_fields;
+  }
+
+  /**
+   * Get the views list.
+   *
+   * @param string $option
+   *   The option key from the options.
+   *
+   * @return mixed
+   *   An array of views options or the individual view option.
+   */
+  protected function getViewsOptions($option = NULL) {
+    $views_options = Views::getViewsAsOptions();
+    if (isset($views_options[$option])) {
+      return $views_options[$option];
+    }
+    return $views_options;
+  }
+
+  /**
+   * Views renderer.
+   *
+   * @param bool $return_renderable
+   *   Identifier for returning the views output or the views object.
+   * @param array $arguments
+   *   An array of views arguments for filters.
+   *
+   * @return mixed
+   *   An array of views options or the individual view option.
+   */
+  protected function viewsRenderer(bool $return_renderable = TRUE, array $arguments = []) {
+    $view = $this->getSetting('searchable_view');
+    $view_parts = explode(':', $this->getSetting('searchable_view'));
+    $view_id = $view_parts[0] ?? NULL;
+    $display_id = $view_parts[1] ?? NULL;
+
+    /** @var \Drupal\views\ViewExecutable $view */
+    $view = Views::getView($view_id);
+
+    // Set views display.
+    $view->setDisplay($display_id);
+
+    // Check if views exists.
+    if (!$view instanceof ViewExecutable || !$view->storage->getDisplay($display_id)) {
+      return;
+    }
+
+    // Set views arguments.
+    if ($arguments) {
+      $view->setArguments($arguments);
+    }
+
+    // Get renderable views.
+    if ($return_renderable) {
+      $view->preExecute();
+      $view->execute();
+      return $view->buildRenderable();
+    }
+
+    return $view;
   }
 
 }
