@@ -9,6 +9,7 @@ use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Entity\EntityFormBuilderInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Render\RendererInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
 
@@ -32,16 +33,26 @@ class EntityFormViewsSearchAjaxController extends ControllerBase {
   protected $entityTypeManager;
 
   /**
+   * The renderer service.
+   *
+   * @var \Drupal\Core\Render\RendererInterface
+   */
+  protected $renderer;
+
+  /**
    * Constructs a new EntityFormViewsSearchAjaxController object.
    *
    * @param \Drupal\Core\Entity\EntityFormBuilderInterface $entity_form_builder
    *   The entity form builder.
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    *   The entity type manager.
+   * @param \Drupal\Core\Render\RendererInterface $renderer
+   *   The renderer service.
    */
-  public function __construct(EntityFormBuilderInterface $entity_form_builder, EntityTypeManagerInterface $entity_type_manager) {
+  public function __construct(EntityFormBuilderInterface $entity_form_builder, EntityTypeManagerInterface $entity_type_manager, RendererInterface $renderer) {
     $this->entityFormBuilder = $entity_form_builder;
     $this->entityTypeManager = $entity_type_manager;
+    $this->renderer = $renderer;
   }
 
   /**
@@ -51,6 +62,7 @@ class EntityFormViewsSearchAjaxController extends ControllerBase {
     return new static(
       $container->get('entity.form_builder'),
       $container->get('entity_type.manager'),
+      $container->get('renderer'),
     );
   }
 
@@ -71,14 +83,8 @@ class EntityFormViewsSearchAjaxController extends ControllerBase {
     $entity_type = $request->query->get('entity_type') ?? '';
     $form_mode = $request->query->get('form_mode') ?? 'default';
 
-    // Get the entity builder.
-    $entity_builder = \Drupal::entityTypeManager()->getViewBuilder($entity_type);
-
     // Create an AJAX response.
     $response = new AjaxResponse();
-
-    // Retrieve the renderer service from the container.
-    $renderer = \Drupal::service('renderer');
 
     // If necessary parameters are missing, return empty response.
     if (!$entity_type || !$entity_id) {
@@ -101,7 +107,7 @@ class EntityFormViewsSearchAjaxController extends ControllerBase {
     $container = '.ervs-container[data-ervs-view-id="' . $view_id . '"][data-ervs-view-display="' . $display . '"]';
 
     // Replace the content of results with the rendered form.
-    $response->addCommand(new HtmlCommand($container . ' .ervs-results > div', $renderer->render($rendered_form)));
+    $response->addCommand(new HtmlCommand($container . ' .ervs-results > div', $this->renderer->render($rendered_form)));
 
     // Invoke JS command to set the value of the input.
     $response->addCommand(new InvokeCommand($container . ' input.ervs-input', 'val', [$entity_id]));
