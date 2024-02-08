@@ -2,16 +2,16 @@
 
 /**
  * @file
- * Provides views search widget.
+ * Provides views search widget for entity reference fields.
  */
 
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\field\FieldConfigInterface;
 
 /**
- * Implements hook_form_alter().
+ * Implements hook_form_FORM_ID_alter().
  */
-function entity_reference_views_search_form_field_config_edit_form_alter(&$form, FormStateInterface $form_state, $form_id) {
+function entity_reference_views_search_form_field_config_edit_form_alter(&$form, FormStateInterface $form_state) {
   /** @var \Drupal\field\FieldConfigInterface $field_config */
   $field_config = $form_state->getFormObject()->getEntity();
 
@@ -42,4 +42,21 @@ function entity_reference_views_search_form_builder($entity_type, FieldConfigInt
     'status',
     $form_state->getValue(['entity_reference_views_search', 'status']),
   );
+}
+
+/**
+ * Implements hook_views_data().
+ */
+function entity_reference_views_search_views_data() {
+  $data = [];
+  $data['node']['entity_reference_views_search_select'] = [
+    'title' => t('Entity Reference Views Search Select'),
+    'help' => t('Custom field for Entity Reference Views Search.'),
+    'field' => [
+      'title' => t('Entity Reference Views Search Select'),
+      'help' => t('The select button for this content.'),
+      'id' => 'entity_reference_views_search_select',
+    ],
+  ];
+  return $data;
 }

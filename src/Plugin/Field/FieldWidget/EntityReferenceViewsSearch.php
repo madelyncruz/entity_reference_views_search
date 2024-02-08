@@ -5,6 +5,7 @@ namespace Drupal\entity_reference_views_search\Plugin\Field\FieldWidget;
 use Drupal\Component\Utility\Html;
 use Drupal\Component\Utility\Tags;
 use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\InvokeCommand;
 use Drupal\Core\Ajax\ReplaceCommand;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityFieldManagerInterface;
@@ -82,8 +83,8 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
    */
   public static function defaultSettings() {
     return [
-      'searchable_fields' => [],
-      'searchable_view' => [],
+      'searchable_fields' => NULL,
+      'searchable_view' => NULL,
     ] + parent::defaultSettings();
   }
 
@@ -172,10 +173,24 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
         '#disabled' => TRUE,
       ];
 
+      switch ($field_type) {
+        case 'entity_reference':
+          $element_type = 'autocomplete';
+          break;
+
+        case 'phone_international':
+          $element_type = 'phone_international';
+          break;
+
+        default:
+          $element_type = 'textfield';
+          break;
+      }
+
       // Build table type data.
       $element['searchable_fields'][$name]['type'] = [
         '#type' => 'textfield',
-        '#value' => $field_type == 'entity_reference' ? 'autocomplete' : 'textfield',
+        '#value' => $element_type,
         '#disabled' => TRUE,
       ];
 
@@ -241,31 +256,50 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
     $ajax_wrapper_id = $this->generateAjaxWrapper($items->getFieldDefinition()->id() . '_form');
 
     // Build container element.
-    $element['entity_reference_views_search'] = [
+    $element = [
       '#type' => 'container',
+      '#id' => str_replace('js-', '', $ajax_wrapper_id),
+      '#attributes' => [
+        'class' => ['ervs-container'],
+        'data-ervs-ajax' => $ajax_wrapper_id,
+        'data-ervs-type' => 'entity_reference_views_search',
+      ],
       '#tree' => TRUE,
-      '#attributes' => ['data-ajax-id' => $ajax_wrapper_id],
+      '#weight' => -20,
     ];
 
     // Build element for each enabled fields.
     foreach ($enabled_fields as $field_name => $field) {
-      $element['entity_reference_views_search'][$field_name] = [
+      $element[$field_name] = [
         '#type' => $field['type'],
         '#title' => $field['label'],
       ];
+      if ($field['type'] === 'phone_international') {
+        $element[$field_name]['#geolocation'] = TRUE;
+      }
       if ($field['placeholder']) {
-        $element['entity_reference_views_search'][$field_name]['#placeholder'] = $field['placeholder'];
+        $element[$field_name]['#placeholder'] = $field['placeholder'];
       }
     }
 
     $element['results'] = [
       '#type' => 'container',
-      '#prefix' => '<div id="' . $ajax_wrapper_id . '">',
+      '#prefix' => '<div id="' . $ajax_wrapper_id . '" class="ervs-results">',
       '#suffix' => '</div>',
+      '#weight' => 10,
     ];
 
+    $element['target_id'] = [
+      '#type' => 'hidden',
+      '#type' => 'textfield',
+      '#default_value' => !$items->isEmpty() ? $items->getValue()[0]['target_id'] : NULL,
+      '#attributes' => [
+        'class' => ['ervs-input'],
+      ],
+    ];
     $element['actions'] = [
       '#type' => 'actions',
+      '#weight' => -10,
     ];
     $element['actions']['button'] = [
       '#type' => 'button',
@@ -322,7 +356,7 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
   public function entityReferenceViewsSearchAjax(array &$form, FormStateInterface $form_state) {
     $field_definition = $this->fieldDefinition;
     $field_name = $field_definition->getName();
-    $ajax_wrapper_id = $form[$field_name]['widget']['entity_reference_views_search']['#attributes']['data-ajax-id'];
+    $ajax_wrapper_id = $form[$field_name]['widget']['#attributes']['data-ervs-ajax'];
     $enabled_fields = $this->getEnabledSearchableFields();
     $exposed_filters = [];
 
@@ -332,7 +366,6 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
     // Get all the values.
     $values = $form_state->getValue([
       $field_name,
-      'entity_reference_views_search',
     ]);
 
     // Loop through enabled fields to map the values for exposed filter format.
@@ -353,11 +386,16 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
     // Execute views query.
     $view->execute();
 
-    // Insert rendered views.
-    $response->addCommand(new ReplaceCommand('#' . $ajax_wrapper_id . ' > div', $view->render()));
+    // Invoke JS command to set attributes in the container.
+    $response->addCommand(new InvokeCommand('.ervs-container[data-ervs-ajax="' . $ajax_wrapper_id . '"]', 'attr', [
+      [
+        'data-ervs-view-id' => $view->id(),
+        'data-ervs-view-display' => $view->current_display,
+      ],
+    ]));
 
-    // Remove rendered views exposed form.
-    $response->addCommand(new ReplaceCommand('#' . $ajax_wrapper_id . ' .views-exposed-form', ''));
+    // Replace the content of results with the rendered views.
+    $response->addCommand(new ReplaceCommand('#' . $ajax_wrapper_id . ' > div', $view->render()));
 
     return $response;
   }
@@ -383,9 +421,12 @@ class EntityReferenceViewsSearch extends WidgetBase implements ContainerFactoryP
    * @return array
    *   An array of enabled searchable fields.
    */
-  protected function getEnabledSearchableFields() {
+  protected function getEnabledSearchableFields() : array {
     $searchable_fields = $this->getSetting('searchable_fields');
     $enabled_fields = [];
+    if (!$searchable_fields) {
+      return $enabled_fields;
+    }
     foreach ($searchable_fields as $field_name => $field) {
       if ($field['status'] == 1) {
         $enabled_fields[$field_name] = $field;

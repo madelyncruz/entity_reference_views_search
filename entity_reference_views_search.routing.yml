@@ -5,3 +5,11 @@ entity_reference_views_search.settings:
     _title: 'Entity Reference Views Search Settings'
   requirements:
     _permission: 'administer site configuration'
+
+entity_reference_views_search.ajax:
+  path: '/entity-reference-views-search/ajax'
+  defaults:
+    _controller: '\Drupal\entity_reference_views_search\Controller\EntityFormViewsSearchAjaxController::ajaxView'
+    _format: 'json'
+  requirements:
+    _permission: 'access content'

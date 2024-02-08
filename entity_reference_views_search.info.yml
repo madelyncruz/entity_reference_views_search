@@ -1,5 +1,5 @@
 name: Entity Reference Views Search
-description: Provides views search widget.
+description: Provides views search widget for entity reference fields.
 type: module
 package: Fields
 core_version_requirement: ^9 || ^10
